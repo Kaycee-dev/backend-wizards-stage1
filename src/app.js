@@ -3,17 +3,10 @@ const { createRouter } = require('./routes/profiles');
 const { error } = require('./lib/respond');
 const { HttpError } = require('./lib/errors');
 
-const PROFILE = {
-  name: process.env.MY_NAME || 'Kelechi Uba',
-  email: process.env.MY_EMAIL || 'odumosumatthew9@gmail.com',
-  github_profile: process.env.MY_GITHUB || 'https://github.com/Kaycee-dev',
-};
-
-function commonHeaders(req, res, next) {
+function cors(req, res, next) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Server', 'nginx');
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
   }
@@ -23,30 +16,11 @@ function commonHeaders(req, res, next) {
 function createApp(options = {}) {
   const app = express();
   app.disable('x-powered-by');
-  app.use(commonHeaders);
+  app.use(cors);
   app.use(express.json({ limit: '10kb' }));
 
   app.get('/', (req, res) => {
-    res.status(200).json({
-      status: 'success',
-      message: 'Backend Wizards Stage 1 API',
-      name: PROFILE.name,
-      email: PROFILE.email,
-      github_profile: PROFILE.github_profile,
-    });
-  });
-
-  app.get('/health', (req, res) => {
-    res.status(200).json({ status: 'success', message: 'Service is healthy' });
-  });
-
-  app.get('/me', (req, res) => {
-    res.status(200).json({
-      status: 'success',
-      name: PROFILE.name,
-      email: PROFILE.email,
-      github_profile: PROFILE.github_profile,
-    });
+    res.status(200).json({ status: 'success', message: 'Backend Wizards Stage 1 - Profiles API' });
   });
 
   app.use('/api/profiles', createRouter(options));
@@ -70,4 +44,4 @@ function createApp(options = {}) {
   return app;
 }
 
-module.exports = { createApp, PROFILE };
+module.exports = { createApp };
