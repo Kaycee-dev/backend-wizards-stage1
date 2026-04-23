@@ -1,4 +1,18 @@
 const { query } = require('../db');
+const {
+  formatTimestamp,
+  normalizeAgeGroup,
+  normalizeCountryId,
+  normalizeGender,
+  normalizeNameKey,
+  toProfileRecord,
+} = require('../lib/profiles');
+
+const SORT_COLUMNS = {
+  age: 'age',
+  created_at: 'created_at',
+  gender_probability: 'gender_probability',
+};
 
 function serialize(row) {
   if (!row) return null;
@@ -7,56 +21,89 @@ function serialize(row) {
     name: row.name,
     gender: row.gender,
     gender_probability: Number(row.gender_probability),
-    sample_size: Number(row.sample_size),
     age: Number(row.age),
     age_group: row.age_group,
     country_id: row.country_id,
+    country_name: row.country_name,
     country_probability: Number(row.country_probability),
-    created_at: new Date(row.created_at).toISOString().replace(/\.\d{3}Z$/, 'Z'),
-  };
-}
-
-function serializeListItem(row) {
-  return {
-    id: row.id,
-    name: row.name,
-    gender: row.gender,
-    age: Number(row.age),
-    age_group: row.age_group,
-    country_id: row.country_id,
+    created_at: formatTimestamp(row.created_at),
   };
 }
 
 async function insertOrGet(profile) {
   const insertSql = `
     INSERT INTO profiles
-      (id, name, name_key, gender, gender_probability, sample_size, age, age_group, country_id, country_probability)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-    ON CONFLICT (name_key) DO NOTHING
-    RETURNING *
+      (id, name, gender, gender_probability, age, age_group, country_id, country_name, country_probability)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    ON CONFLICT ((LOWER(BTRIM(name)))) DO NOTHING
+    RETURNING
+      id,
+      name,
+      gender,
+      gender_probability,
+      age,
+      age_group,
+      country_id,
+      country_name,
+      country_probability,
+      created_at AT TIME ZONE 'UTC' AS created_at
   `;
+  const record = toProfileRecord(profile);
   const params = [
-    profile.id,
-    profile.name,
-    profile.name_key,
-    profile.gender,
-    profile.gender_probability,
-    profile.sample_size,
-    profile.age,
-    profile.age_group,
-    profile.country_id,
-    profile.country_probability,
+    record.id,
+    record.name,
+    record.gender,
+    record.gender_probability,
+    record.age,
+    record.age_group,
+    record.country_id,
+    record.country_name,
+    record.country_probability,
   ];
   const insertResult = await query(insertSql, params);
   if (insertResult.rows.length > 0) {
     return { inserted: true, row: serialize(insertResult.rows[0]) };
   }
-  const existing = await query('SELECT * FROM profiles WHERE name_key = $1', [profile.name_key]);
+  const existing = await query(
+    `
+      SELECT
+        id,
+        name,
+        gender,
+        gender_probability,
+        age,
+        age_group,
+        country_id,
+        country_name,
+        country_probability,
+        created_at AT TIME ZONE 'UTC' AS created_at
+      FROM profiles
+      WHERE LOWER(BTRIM(name)) = $1
+    `,
+    [normalizeNameKey(record.name)]
+  );
   return { inserted: false, row: serialize(existing.rows[0]) };
 }
 
 async function findById(id) {
-  const { rows } = await query('SELECT * FROM profiles WHERE id = $1', [id]);
+  const { rows } = await query(
+    `
+      SELECT
+        id,
+        name,
+        gender,
+        gender_probability,
+        age,
+        age_group,
+        country_id,
+        country_name,
+        country_probability,
+        created_at AT TIME ZONE 'UTC' AS created_at
+      FROM profiles
+      WHERE id = $1
+    `,
+    [id]
+  );
   return rows[0] ? serialize(rows[0]) : null;
 }
 
@@ -65,24 +112,75 @@ async function deleteById(id) {
   return rowCount > 0;
 }
 
-async function list({ gender, country_id, age_group }) {
-  const conditions = [];
+async function queryProfiles(options) {
+  const filters = [];
   const params = [];
-  if (gender) {
-    params.push(gender.toLowerCase());
-    conditions.push(`LOWER(gender) = $${params.length}`);
+
+  if (options.gender) {
+    params.push(normalizeGender(options.gender));
+    filters.push(`gender = $${params.length}`);
   }
-  if (country_id) {
-    params.push(country_id.toLowerCase());
-    conditions.push(`LOWER(country_id) = $${params.length}`);
+  if (options.age_group) {
+    params.push(normalizeAgeGroup(options.age_group));
+    filters.push(`age_group = $${params.length}`);
   }
-  if (age_group) {
-    params.push(age_group.toLowerCase());
-    conditions.push(`LOWER(age_group) = $${params.length}`);
+  if (options.country_id) {
+    params.push(normalizeCountryId(options.country_id));
+    filters.push(`country_id = $${params.length}`);
   }
-  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-  const { rows } = await query(`SELECT * FROM profiles ${where} ORDER BY created_at ASC`, params);
-  return rows.map(serializeListItem);
+  if (options.min_age !== undefined) {
+    params.push(options.min_age);
+    filters.push(`age >= $${params.length}`);
+  }
+  if (options.max_age !== undefined) {
+    params.push(options.max_age);
+    filters.push(`age <= $${params.length}`);
+  }
+  if (options.min_gender_probability !== undefined) {
+    params.push(options.min_gender_probability);
+    filters.push(`gender_probability >= $${params.length}`);
+  }
+  if (options.min_country_probability !== undefined) {
+    params.push(options.min_country_probability);
+    filters.push(`country_probability >= $${params.length}`);
+  }
+
+  const where = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
+  const sortColumn = SORT_COLUMNS[options.sort_by] || SORT_COLUMNS.created_at;
+  const sortOrder = options.order === 'desc' ? 'DESC' : 'ASC';
+  const totalResult = await query(`SELECT COUNT(*)::int AS total FROM profiles ${where}`, params);
+
+  params.push(options.limit, (options.page - 1) * options.limit);
+  const limitPosition = params.length - 1;
+  const offsetPosition = params.length;
+  const { rows } = await query(
+    `
+      SELECT
+        id,
+        name,
+        gender,
+        gender_probability,
+        age,
+        age_group,
+        country_id,
+        country_name,
+        country_probability,
+        created_at AT TIME ZONE 'UTC' AS created_at
+      FROM profiles
+      ${where}
+      ORDER BY ${sortColumn} ${sortOrder}, id ${sortOrder}
+      LIMIT $${limitPosition}
+      OFFSET $${offsetPosition}
+    `,
+    params
+  );
+
+  return {
+    page: options.page,
+    limit: options.limit,
+    total: totalResult.rows[0].total,
+    data: rows.map(serialize),
+  };
 }
 
-module.exports = { insertOrGet, findById, deleteById, list, serialize, serializeListItem };
+module.exports = { insertOrGet, findById, deleteById, queryProfiles, serialize };

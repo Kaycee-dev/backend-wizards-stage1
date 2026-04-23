@@ -1,5 +1,6 @@
 const { createApp } = require('./app');
 const { runMigrations } = require('./migrate');
+const { seedDatabase } = require('./seed');
 
 const PORT = Number(process.env.PORT) || 3000;
 
@@ -9,6 +10,11 @@ async function main() {
       await runMigrations();
     } catch (err) {
       console.error('[migrate] failed:', err.message);
+    }
+    try {
+      await seedDatabase();
+    } catch (err) {
+      console.error('[seed] failed:', err.message);
     }
   }
   const app = createApp();

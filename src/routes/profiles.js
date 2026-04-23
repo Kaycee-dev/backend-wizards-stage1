@@ -4,6 +4,10 @@ const { enrichName: defaultEnrich } = require('../services/external');
 const { ageGroup } = require('../services/classify');
 const defaultRepo = require('../repo/profiles');
 const { success, error } = require('../lib/respond');
+const { getCountryName } = require('../lib/countries');
+const { validateListQuery, validateSearchQuery } = require('../lib/queryValidation');
+const { parseNaturalLanguageQuery } = require('../services/queryParser');
+const { normalizeName } = require('../lib/profiles');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -19,23 +23,25 @@ function createRouter({ repo = defaultRepo, enrichName = defaultEnrich } = {}) {
       if (typeof body.name !== 'string') {
         return error(res, 422, 'Invalid type');
       }
-      const trimmed = body.name.trim();
+      const trimmed = normalizeName(body.name);
       if (trimmed.length === 0) {
         return error(res, 400, 'Missing or empty name');
       }
 
-      const name_key = trimmed.toLowerCase();
       const enriched = await enrichName(trimmed);
+      const countryName = getCountryName(enriched.country_id);
+      if (!countryName) {
+        return error(res, 502, 'Nationalize returned an invalid response');
+      }
       const profile = {
         id: uuidv7(),
         name: trimmed,
-        name_key,
         gender: enriched.gender,
         gender_probability: enriched.gender_probability,
-        sample_size: enriched.sample_size,
         age: enriched.age,
         age_group: ageGroup(enriched.age),
         country_id: enriched.country_id,
+        country_name: countryName,
         country_probability: enriched.country_probability,
       };
 
@@ -51,9 +57,20 @@ function createRouter({ repo = defaultRepo, enrichName = defaultEnrich } = {}) {
 
   router.get('/', async (req, res, next) => {
     try {
-      const { gender, country_id, age_group } = req.query;
-      const data = await repo.list({ gender, country_id, age_group });
-      return success(res, 200, { count: data.length, data });
+      const filters = validateListQuery(req.query);
+      const result = await repo.queryProfiles(filters);
+      return success(res, 200, result);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/search', async (req, res, next) => {
+    try {
+      const { q, ...options } = validateSearchQuery(req.query);
+      const parsedFilters = parseNaturalLanguageQuery(q);
+      const result = await repo.queryProfiles({ ...options, ...parsedFilters });
+      return success(res, 200, result);
     } catch (err) {
       next(err);
     }

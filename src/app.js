@@ -20,7 +20,7 @@ function createApp(options = {}) {
   app.use(express.json({ limit: '10kb' }));
 
   app.get('/', (req, res) => {
-    res.status(200).json({ status: 'success', message: 'Backend Wizards Stage 1 - Profiles API' });
+    res.status(200).json({ status: 'success', message: 'Backend Wizards Stage 2 - Intelligence Query Engine' });
   });
 
   app.use('/api/profiles', createRouter(options));

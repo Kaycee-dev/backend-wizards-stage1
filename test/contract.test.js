@@ -5,225 +5,280 @@ const { createApp } = require('../src/app');
 const { createMemoryRepo } = require('./helpers/memoryRepo');
 const { createFakeEnrich } = require('./helpers/fakeEnrich');
 
-function newApp(fixtures) {
+const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+const PROFILE_KEYS = [
+  'age',
+  'age_group',
+  'country_id',
+  'country_name',
+  'country_probability',
+  'created_at',
+  'gender',
+  'gender_probability',
+  'id',
+  'name',
+];
+
+const SEARCH_FIXTURES = {
+  ayo: { gender: 'male', gender_probability: 0.93, sample_size: 1200, age: 18, country_id: 'KE', country_probability: 0.92 },
+  zuri: { gender: 'female', gender_probability: 0.88, sample_size: 1100, age: 18, country_id: 'AO', country_probability: 0.77 },
+  kamau: { gender: 'male', gender_probability: 0.91, sample_size: 1500, age: 34, country_id: 'KE', country_probability: 0.81 },
+  ada: { gender: 'female', gender_probability: 0.87, sample_size: 1400, age: 34, country_id: 'NG', country_probability: 0.88 },
+  kwame: { gender: 'male', gender_probability: 0.69, sample_size: 1600, age: 42, country_id: 'GH', country_probability: 0.45 },
+  lola: { gender: 'female', gender_probability: 0.74, sample_size: 1700, age: 21, country_id: 'NG', country_probability: 0.40 },
+  tunde: { gender: 'male', gender_probability: 0.82, sample_size: 900, age: 19, country_id: 'NG', country_probability: 0.90 },
+};
+
+function newApp(fixtures = {}) {
   const repo = createMemoryRepo();
   const enrichName = createFakeEnrich(fixtures);
   const app = createApp({ repo, enrichName });
   return { app, repo };
 }
 
-const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+async function seedNames(app, names) {
+  for (const name of names) {
+    const res = await request(app).post('/api/profiles').send({ name });
+    assert.equal(res.status, 201, `failed to seed ${name}`);
+  }
+}
 
-// T-001
-test('POST new profile returns 201 with full shape, UUID v7, ISO UTC', async () => {
+test('POST new profile returns Stage 2 shape, UUID v7, and UTC timestamp', async () => {
   const { app } = newApp();
   const res = await request(app).post('/api/profiles').send({ name: 'ella' });
+
   assert.equal(res.status, 201);
   assert.equal(res.headers['access-control-allow-origin'], '*');
   assert.equal(res.body.status, 'success');
-  const d = res.body.data;
-  assert.match(d.id, UUID_V7);
-  assert.equal(d.name, 'ella');
-  assert.equal(d.gender, 'female');
-  assert.equal(d.age, 46);
-  assert.equal(d.age_group, 'adult');
-  assert.equal(d.country_id, 'DRC');
-  assert.equal(d.sample_size, 1234);
-  assert.match(d.created_at, ISO_Z);
+  assert.deepEqual(Object.keys(res.body.data).sort(), PROFILE_KEYS);
+  assert.match(res.body.data.id, UUID_V7);
+  assert.match(res.body.data.created_at, ISO_Z);
+  assert.equal(res.body.data.country_id, 'CD');
+  assert.equal(res.body.data.country_name, 'DR Congo');
 });
 
-// T-002, T-003, T-024
-test('POST same name twice returns 200 and same id', async () => {
-  const { app } = newApp();
-  const first = await request(app).post('/api/profiles').send({ name: 'ella' });
-  const dup = await request(app).post('/api/profiles').send({ name: 'ella' });
-  assert.equal(first.status, 201);
-  assert.equal(dup.status, 200);
-  assert.equal(dup.body.message, 'Profile already exists');
-  assert.equal(dup.body.data.id, first.body.data.id);
-});
-
-test('POST normalizes case and whitespace for idempotency', async () => {
+test('POST duplicate name remains idempotent after trimming and case normalization', async () => {
   const { app, repo } = newApp();
-  const a = await request(app).post('/api/profiles').send({ name: 'Ella' });
-  const b = await request(app).post('/api/profiles').send({ name: '  ELLA  ' });
-  assert.equal(a.status, 201);
-  assert.equal(b.status, 200);
-  assert.equal(b.body.data.id, a.body.data.id);
+  const first = await request(app).post('/api/profiles').send({ name: 'Ella' });
+  const duplicate = await request(app).post('/api/profiles').send({ name: '  ella  ' });
+
+  assert.equal(first.status, 201);
+  assert.equal(duplicate.status, 200);
+  assert.equal(duplicate.body.message, 'Profile already exists');
+  assert.equal(duplicate.body.data.id, first.body.data.id);
   assert.equal(repo.size(), 1);
 });
 
-// T-004
-test('POST with no body -> 400 Missing or empty name', async () => {
+test('POST validation returns the Stage 1 name errors for missing, empty, and invalid values', async () => {
   const { app } = newApp();
-  const res = await request(app).post('/api/profiles').send({});
-  assert.equal(res.status, 400);
-  assert.deepEqual(res.body, { status: 'error', message: 'Missing or empty name' });
+
+  const missing = await request(app).post('/api/profiles').send({});
+  assert.equal(missing.status, 400);
+  assert.deepEqual(missing.body, { status: 'error', message: 'Missing or empty name' });
+
+  const empty = await request(app).post('/api/profiles').send({ name: '   ' });
+  assert.equal(empty.status, 400);
+  assert.deepEqual(empty.body, { status: 'error', message: 'Missing or empty name' });
+
+  const invalid = await request(app).post('/api/profiles').send({ name: 42 });
+  assert.equal(invalid.status, 422);
+  assert.deepEqual(invalid.body, { status: 'error', message: 'Invalid type' });
 });
 
-// T-005
-test('POST with whitespace name -> 400', async () => {
-  const { app } = newApp();
-  const res = await request(app).post('/api/profiles').send({ name: '   ' });
-  assert.equal(res.status, 400);
-  assert.equal(res.body.message, 'Missing or empty name');
-});
-
-// T-006
-test('POST with non-string name -> 422 Invalid type', async () => {
-  const { app } = newApp();
-  for (const val of [123, true, [], {}]) {
-    const res = await request(app).post('/api/profiles').send({ name: val });
-    assert.equal(res.status, 422, `value=${JSON.stringify(val)}`);
-    assert.deepEqual(res.body, { status: 'error', message: 'Invalid type' });
-  }
-});
-
-// T-007/008/009/010
-test('Upstream failures produce 502 with exact messages and no DB write', async () => {
+test('upstream failures still return 502 and do not persist rows', async () => {
   const { app, repo } = newApp({
     badgender: 'GENDERIZE_FAIL',
     badage: 'AGIFY_FAIL',
     badnat: 'NATIONALIZE_FAIL',
   });
-  const r1 = await request(app).post('/api/profiles').send({ name: 'badgender' });
-  const r2 = await request(app).post('/api/profiles').send({ name: 'badage' });
-  const r3 = await request(app).post('/api/profiles').send({ name: 'badnat' });
-  assert.equal(r1.status, 502);
-  assert.equal(r1.body.message, 'Genderize returned an invalid response');
-  assert.equal(r2.status, 502);
-  assert.equal(r2.body.message, 'Agify returned an invalid response');
-  assert.equal(r3.status, 502);
-  assert.equal(r3.body.message, 'Nationalize returned an invalid response');
+
+  const genderFail = await request(app).post('/api/profiles').send({ name: 'badgender' });
+  const ageFail = await request(app).post('/api/profiles').send({ name: 'badage' });
+  const natFail = await request(app).post('/api/profiles').send({ name: 'badnat' });
+
+  assert.equal(genderFail.status, 502);
+  assert.equal(genderFail.body.message, 'Genderize returned an invalid response');
+  assert.equal(ageFail.status, 502);
+  assert.equal(ageFail.body.message, 'Agify returned an invalid response');
+  assert.equal(natFail.status, 502);
+  assert.equal(natFail.body.message, 'Nationalize returned an invalid response');
   assert.equal(repo.size(), 0);
 });
 
-// T-011
-test('GET /api/profiles/{id} returns full shape', async () => {
+test('GET by id returns the Stage 2 profile shape', async () => {
   const { app } = newApp();
   const created = await request(app).post('/api/profiles').send({ name: 'emmanuel' });
   const got = await request(app).get(`/api/profiles/${created.body.data.id}`);
+
   assert.equal(got.status, 200);
-  assert.equal(got.body.data.id, created.body.data.id);
+  assert.deepEqual(Object.keys(got.body.data).sort(), PROFILE_KEYS);
+  assert.equal(got.body.data.country_name, 'Nigeria');
   assert.equal(got.body.data.gender_probability, 0.98);
   assert.equal(got.body.data.country_probability, 0.85);
 });
 
-// T-012
-test('GET /api/profiles/{id} unknown UUID -> 404', async () => {
+test('GET by id keeps 404 behavior for unknown and malformed UUIDs', async () => {
   const { app } = newApp();
-  const res = await request(app).get('/api/profiles/01860000-0000-7000-8000-000000000000');
-  assert.equal(res.status, 404);
-  assert.deepEqual(res.body, { status: 'error', message: 'Profile not found' });
+
+  const missing = await request(app).get('/api/profiles/01860000-0000-7000-8000-000000000000');
+  assert.equal(missing.status, 404);
+  assert.deepEqual(missing.body, { status: 'error', message: 'Profile not found' });
+
+  const malformed = await request(app).get('/api/profiles/not-a-uuid');
+  assert.equal(malformed.status, 404);
 });
 
-// T-013
-test('GET malformed UUID -> 404', async () => {
+test('GET /api/profiles returns page, limit, total, and full profile rows by default', async () => {
   const { app } = newApp();
-  const res = await request(app).get('/api/profiles/not-a-uuid');
-  assert.equal(res.status, 404);
-});
+  await seedNames(app, ['emmanuel', 'sarah']);
 
-// T-014 / T-019
-test('GET list has count, correct shape, only 6 fields per item', async () => {
-  const { app } = newApp();
-  await request(app).post('/api/profiles').send({ name: 'emmanuel' });
-  await request(app).post('/api/profiles').send({ name: 'sarah' });
   const res = await request(app).get('/api/profiles');
+
   assert.equal(res.status, 200);
-  assert.equal(res.body.count, 2);
+  assert.deepEqual(
+    Object.keys(res.body).sort(),
+    ['data', 'limit', 'page', 'status', 'total']
+  );
+  assert.equal(res.body.page, 1);
+  assert.equal(res.body.limit, 10);
+  assert.equal(res.body.total, 2);
   assert.equal(res.body.data.length, 2);
-  for (const item of res.body.data) {
-    assert.deepEqual(
-      Object.keys(item).sort(),
-      ['age', 'age_group', 'country_id', 'gender', 'id', 'name']
-    );
-  }
+  assert.deepEqual(Object.keys(res.body.data[0]).sort(), PROFILE_KEYS);
 });
 
-// T-015
-test('Filter gender=MALE matches gender=male', async () => {
+test('GET /api/profiles supports combined filters with age and probability thresholds', async () => {
+  const { app } = newApp(SEARCH_FIXTURES);
+  await seedNames(app, ['emmanuel', 'ayo', 'kamau', 'kwame', 'sarah']);
+
+  const res = await request(app).get(
+    '/api/profiles?gender=male&age_group=adult&country_id=ke&min_age=30&min_gender_probability=0.9&min_country_probability=0.8'
+  );
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.total, 1);
+  assert.equal(res.body.data[0].name, 'kamau');
+});
+
+test('GET /api/profiles sorts deterministically and paginates with total count', async () => {
+  const { app } = newApp(SEARCH_FIXTURES);
+  await seedNames(app, ['emmanuel', 'sarah', 'grace', 'kamau']);
+
+  const sorted = await request(app).get('/api/profiles?sort_by=age&order=desc');
+  assert.equal(sorted.status, 200);
+  assert.deepEqual(sorted.body.data.map((profile) => profile.name), ['grace', 'kamau', 'sarah', 'emmanuel']);
+
+  const paged = await request(app).get('/api/profiles?page=2&limit=2&sort_by=created_at&order=asc');
+  assert.equal(paged.status, 200);
+  assert.equal(paged.body.page, 2);
+  assert.equal(paged.body.limit, 2);
+  assert.equal(paged.body.total, 4);
+  assert.deepEqual(paged.body.data.map((profile) => profile.name), ['grace', 'kamau']);
+});
+
+test('GET /api/profiles rejects invalid filter and pagination parameters', async () => {
   const { app } = newApp();
-  await request(app).post('/api/profiles').send({ name: 'emmanuel' });
-  await request(app).post('/api/profiles').send({ name: 'sarah' });
-  const upper = await request(app).get('/api/profiles?gender=MALE');
-  const lower = await request(app).get('/api/profiles?gender=male');
-  assert.equal(upper.body.count, 1);
-  assert.deepEqual(upper.body.data, lower.body.data);
+
+  const invalidLimit = await request(app).get('/api/profiles?limit=51');
+  assert.equal(invalidLimit.status, 422);
+  assert.deepEqual(invalidLimit.body, { status: 'error', message: 'Invalid query parameters' });
+
+  const invalidSort = await request(app).get('/api/profiles?sort_by=name');
+  assert.equal(invalidSort.status, 422);
+  assert.deepEqual(invalidSort.body, { status: 'error', message: 'Invalid query parameters' });
 });
 
-// T-016
-test('Filter country_id case insensitive', async () => {
+test('GET /api/profiles/search maps young males from nigeria into structured filters', async () => {
+  const { app } = newApp(SEARCH_FIXTURES);
+  await seedNames(app, ['emmanuel', 'tunde', 'sarah']);
+
+  const res = await request(app).get('/api/profiles/search?q=young%20males%20from%20nigeria');
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.total, 1);
+  assert.deepEqual(res.body.data.map((profile) => profile.name), ['tunde']);
+});
+
+test('GET /api/profiles/search handles age phrases and country matching', async () => {
+  const { app } = newApp(SEARCH_FIXTURES);
+  await seedNames(app, ['ella', 'ada', 'grace', 'zuri', 'kamau']);
+
+  const aboveThirty = await request(app).get('/api/profiles/search?q=females%20above%2030');
+  assert.equal(aboveThirty.status, 200);
+  assert.deepEqual(aboveThirty.body.data.map((profile) => profile.name), ['ella', 'ada', 'grace']);
+
+  const angola = await request(app).get('/api/profiles/search?q=people%20from%20angola');
+  assert.equal(angola.status, 200);
+  assert.deepEqual(angola.body.data.map((profile) => profile.name), ['zuri']);
+
+  const kenya = await request(app).get('/api/profiles/search?q=adult%20males%20from%20kenya');
+  assert.equal(kenya.status, 200);
+  assert.deepEqual(kenya.body.data.map((profile) => profile.name), ['kamau']);
+});
+
+test('GET /api/profiles/search omits gender when both genders are mentioned', async () => {
+  const { app } = newApp(SEARCH_FIXTURES);
+  await seedNames(app, ['ayo', 'zuri', 'teen', 'liam']);
+
+  const res = await request(app).get('/api/profiles/search?q=male%20and%20female%20teenagers%20above%2017');
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.data.map((profile) => profile.name), ['ayo', 'zuri']);
+});
+
+test('GET /api/profiles/search distinguishes invalid parameters from uninterpretable text', async () => {
   const { app } = newApp();
-  await request(app).post('/api/profiles').send({ name: 'emmanuel' });
-  const a = await request(app).get('/api/profiles?country_id=ng');
-  const b = await request(app).get('/api/profiles?country_id=NG');
-  assert.equal(a.body.count, 1);
-  assert.deepEqual(a.body.data, b.body.data);
+
+  const uninterpretable = await request(app).get('/api/profiles/search?q=clouds%20and%20dreams');
+  assert.equal(uninterpretable.status, 400);
+  assert.deepEqual(uninterpretable.body, { status: 'error', message: 'Unable to interpret query' });
+
+  const empty = await request(app).get('/api/profiles/search?q=');
+  assert.equal(empty.status, 400);
+  assert.deepEqual(empty.body, { status: 'error', message: 'Invalid query parameters' });
+
+  const invalidPage = await request(app).get('/api/profiles/search?q=young%20males&page=0');
+  assert.equal(invalidPage.status, 422);
+  assert.deepEqual(invalidPage.body, { status: 'error', message: 'Invalid query parameters' });
 });
 
-// T-017
-test('Filter age_group=ADULT = adult', async () => {
-  const { app } = newApp();
-  await request(app).post('/api/profiles').send({ name: 'emmanuel' });
-  await request(app).post('/api/profiles').send({ name: 'liam' }); // child
-  const a = await request(app).get('/api/profiles?age_group=ADULT');
-  assert.equal(a.body.count, 1);
-  assert.equal(a.body.data[0].name, 'emmanuel');
-});
-
-// T-018
-test('Combined filters intersect', async () => {
-  const { app } = newApp();
-  await request(app).post('/api/profiles').send({ name: 'emmanuel' });
-  await request(app).post('/api/profiles').send({ name: 'sarah' });
-  const res = await request(app).get('/api/profiles?gender=female&country_id=US');
-  assert.equal(res.body.count, 1);
-  assert.equal(res.body.data[0].name, 'sarah');
-});
-
-// T-020
-test('DELETE existing profile -> 204 and subsequent GET -> 404', async () => {
+test('DELETE existing profiles still returns 204 and preserves 404 after removal', async () => {
   const { app } = newApp();
   const created = await request(app).post('/api/profiles').send({ name: 'ella' });
-  const id = created.body.data.id;
-  const del = await request(app).delete(`/api/profiles/${id}`);
+
+  const del = await request(app).delete(`/api/profiles/${created.body.data.id}`);
   assert.equal(del.status, 204);
   assert.equal(del.headers['access-control-allow-origin'], '*');
   assert.equal(del.text, '');
-  const got = await request(app).get(`/api/profiles/${id}`);
-  assert.equal(got.status, 404);
+
+  const missing = await request(app).get(`/api/profiles/${created.body.data.id}`);
+  assert.equal(missing.status, 404);
 });
 
-// T-021
-test('DELETE missing/bad UUID -> 404', async () => {
+test('DELETE keeps 404 behavior for malformed and missing ids', async () => {
   const { app } = newApp();
-  const r1 = await request(app).delete('/api/profiles/bad-uuid');
-  assert.equal(r1.status, 404);
-  const r2 = await request(app).delete('/api/profiles/01860000-0000-7000-8000-000000000000');
-  assert.equal(r2.status, 404);
+
+  const malformed = await request(app).delete('/api/profiles/bad-uuid');
+  assert.equal(malformed.status, 404);
+
+  const missing = await request(app).delete('/api/profiles/01860000-0000-7000-8000-000000000000');
+  assert.equal(missing.status, 404);
 });
 
-// T-022
-test('OPTIONS preflight -> 204 with CORS headers', async () => {
+test('CORS headers remain present on preflight and error responses', async () => {
   const { app } = newApp();
-  const res = await request(app).options('/api/profiles');
-  assert.equal(res.status, 204);
-  assert.equal(res.headers['access-control-allow-origin'], '*');
-  assert.match(res.headers['access-control-allow-methods'], /POST/);
+
+  const preflight = await request(app).options('/api/profiles');
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers['access-control-allow-origin'], '*');
+  assert.match(preflight.headers['access-control-allow-methods'], /POST/);
+
+  const errorRes = await request(app).post('/api/profiles').send({});
+  assert.equal(errorRes.status, 400);
+  assert.equal(errorRes.headers['access-control-allow-origin'], '*');
 });
 
-// T-023
-test('CORS header present on error responses', async () => {
-  const { app } = newApp();
-  const res = await request(app).post('/api/profiles').send({});
-  assert.equal(res.status, 400);
-  assert.equal(res.headers['access-control-allow-origin'], '*');
-});
-
-// classification boundaries
-test('age group classification boundaries', () => {
+test('age group classification boundaries stay unchanged', () => {
   const { ageGroup } = require('../src/services/classify');
   assert.equal(ageGroup(0), 'child');
   assert.equal(ageGroup(12), 'child');
@@ -235,7 +290,7 @@ test('age group classification boundaries', () => {
   assert.equal(ageGroup(120), 'senior');
 });
 
-test('top-probability country selection', () => {
+test('top-probability country selection still prefers the largest probability', () => {
   const { pickTopCountry } = require('../src/services/classify');
   const top = pickTopCountry([
     { country_id: 'US', probability: 0.3 },

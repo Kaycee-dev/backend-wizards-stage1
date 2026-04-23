@@ -2,14 +2,15 @@
   "name": "backend-wizards-stage1",
   "version": "1.0.0",
   "private": true,
-  "description": "HNG14 Backend Wizards Stage 1 - Profiles API",
+  "description": "HNG14 Backend Wizards Stage 2 - Intelligence Query Engine",
   "type": "commonjs",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
     "dev": "node src/server.js",
     "migrate": "node src/migrate.js",
-    "test": "node --test test/contract.test.js test/external.test.js"
+    "seed": "node src/seed.js",
+    "test": "node --test test/contract.test.js test/external.test.js test/queryParser.test.js"
   },
   "engines": {
     "node": ">=20"
