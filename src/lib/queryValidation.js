@@ -59,7 +59,7 @@ function readSingleValue(query, key) {
   return value.trim();
 }
 
-function readInteger(query, key, { min, max, required = false, defaultValue } = {}) {
+function readInteger(query, key, { min, max, clampMax = false, required = false, defaultValue } = {}) {
   const raw = readSingleValue(query, key);
   if (raw === undefined) {
     if (required) invalidQuery(400);
@@ -76,6 +76,7 @@ function readInteger(query, key, { min, max, required = false, defaultValue } = 
     invalidQuery(422);
   }
   if (max !== undefined && value > max) {
+    if (clampMax) return max;
     invalidQuery(422);
   }
   return value;
@@ -97,7 +98,7 @@ function readProbability(query, key) {
 function readSortAndPagination(query) {
   const filters = {
     page: readInteger(query, 'page', { min: 1, defaultValue: 1 }),
-    limit: readInteger(query, 'limit', { min: 1, max: 50, defaultValue: 10 }),
+    limit: readInteger(query, 'limit', { min: 1, max: 50, clampMax: true, defaultValue: 10 }),
     sort_by: 'created_at',
     order: 'asc',
   };

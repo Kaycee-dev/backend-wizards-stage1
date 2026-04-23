@@ -60,7 +60,7 @@ Supported query parameters:
 - `sort_by` → `age | created_at | gender_probability`
 - `order` → `asc | desc`
 - `page` → default `1`
-- `limit` → default `10`, max `50`
+- `limit` → default `10`, max `50` (values above 50 are clamped to 50)
 
 Example:
 

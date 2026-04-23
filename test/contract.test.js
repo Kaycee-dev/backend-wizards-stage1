@@ -179,13 +179,21 @@ test('GET /api/profiles sorts deterministically and paginates with total count',
 test('GET /api/profiles rejects invalid filter and pagination parameters', async () => {
   const { app } = newApp();
 
-  const invalidLimit = await request(app).get('/api/profiles?limit=51');
-  assert.equal(invalidLimit.status, 422);
-  assert.deepEqual(invalidLimit.body, { status: 'error', message: 'Invalid query parameters' });
+  const zeroLimit = await request(app).get('/api/profiles?limit=0');
+  assert.equal(zeroLimit.status, 422);
+  assert.deepEqual(zeroLimit.body, { status: 'error', message: 'Invalid query parameters' });
 
   const invalidSort = await request(app).get('/api/profiles?sort_by=name');
   assert.equal(invalidSort.status, 422);
   assert.deepEqual(invalidSort.body, { status: 'error', message: 'Invalid query parameters' });
+});
+
+test('GET /api/profiles clamps limit to 50 when above the max', async () => {
+  const { app } = newApp();
+
+  const overMax = await request(app).get('/api/profiles?limit=100');
+  assert.equal(overMax.status, 200);
+  assert.equal(overMax.body.limit, 50);
 });
 
 test('GET /api/profiles/search maps young males from nigeria into structured filters', async () => {
