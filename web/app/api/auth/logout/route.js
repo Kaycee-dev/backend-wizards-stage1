@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { backendUrl, clearSessionCookies, readSession } from '../../../../lib/session';
+import { backendUrl, clearSessionCookiesOn, readSession } from '../../../../lib/session';
 
 export async function POST(request) {
   const session = await readSession();
@@ -14,6 +14,5 @@ export async function POST(request) {
       cache: 'no-store',
     }).catch(() => null);
   }
-  await clearSessionCookies();
-  return NextResponse.redirect(new URL('/login', request.url), 303);
+  return clearSessionCookiesOn(NextResponse.redirect(new URL('/login', request.url), 303));
 }

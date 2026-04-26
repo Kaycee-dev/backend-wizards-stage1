@@ -39,20 +39,36 @@ export async function requireSession() {
   return session;
 }
 
-export async function setSessionCookies(tokenPair) {
-  const jar = await cookies();
+function sessionCookieAttrs(tokenPair) {
   const common = {
     httpOnly: true,
     path: '/',
     sameSite: 'lax',
     secure: cookieSecure(),
   };
-  jar.set(ACCESS_COOKIE, tokenPair.access_token, { ...common, maxAge: tokenPair.expires_in || 180 });
-  jar.set(REFRESH_COOKIE, tokenPair.refresh_token, { ...common, maxAge: tokenPair.refresh_expires_in || 300 });
-  jar.set(USER_COOKIE, Buffer.from(JSON.stringify(tokenPair.user || {})).toString('base64url'), {
-    ...common,
-    maxAge: tokenPair.refresh_expires_in || 300,
-  });
+  return [
+    [ACCESS_COOKIE, tokenPair.access_token, { ...common, maxAge: tokenPair.expires_in || 180 }],
+    [REFRESH_COOKIE, tokenPair.refresh_token, { ...common, maxAge: tokenPair.refresh_expires_in || 300 }],
+    [
+      USER_COOKIE,
+      Buffer.from(JSON.stringify(tokenPair.user || {})).toString('base64url'),
+      { ...common, maxAge: tokenPair.refresh_expires_in || 300 },
+    ],
+  ];
+}
+
+export async function setSessionCookies(tokenPair) {
+  const jar = await cookies();
+  for (const [name, value, opts] of sessionCookieAttrs(tokenPair)) {
+    jar.set(name, value, opts);
+  }
+}
+
+export function applySessionCookies(response, tokenPair) {
+  for (const [name, value, opts] of sessionCookieAttrs(tokenPair)) {
+    response.cookies.set(name, value, opts);
+  }
+  return response;
 }
 
 export async function refreshSession() {
@@ -73,17 +89,29 @@ export async function refreshSession() {
   return payload;
 }
 
+function clearedCookieAttrs() {
+  const opts = {
+    httpOnly: true,
+    maxAge: 0,
+    path: '/',
+    sameSite: 'lax',
+    secure: cookieSecure(),
+  };
+  return [ACCESS_COOKIE, REFRESH_COOKIE, USER_COOKIE].map((name) => [name, '', opts]);
+}
+
 export async function clearSessionCookies() {
   const jar = await cookies();
-  for (const name of [ACCESS_COOKIE, REFRESH_COOKIE, USER_COOKIE]) {
-    jar.set(name, '', {
-      httpOnly: true,
-      maxAge: 0,
-      path: '/',
-      sameSite: 'lax',
-      secure: cookieSecure(),
-    });
+  for (const [name, value, opts] of clearedCookieAttrs()) {
+    jar.set(name, value, opts);
   }
+}
+
+export function clearSessionCookiesOn(response) {
+  for (const [name, value, opts] of clearedCookieAttrs()) {
+    response.cookies.set(name, value, opts);
+  }
+  return response;
 }
 
 export const cookieNames = {

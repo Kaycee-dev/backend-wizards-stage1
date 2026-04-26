@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { backendUrl } from '../../../lib/session';
-import { setSessionCookies } from '../../../lib/session';
+import { applySessionCookies, backendUrl } from '../../../lib/session';
 
 export async function GET(request) {
   const url = new URL(request.url);
@@ -21,6 +20,5 @@ export async function GET(request) {
     return NextResponse.redirect(new URL('/login', url.origin));
   }
   const payload = await res.json();
-  await setSessionCookies(payload);
-  return NextResponse.redirect(new URL('/dashboard', url.origin));
+  return applySessionCookies(NextResponse.redirect(new URL('/dashboard', url.origin)), payload);
 }
