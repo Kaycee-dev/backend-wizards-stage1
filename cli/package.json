@@ -1,0 +1,24 @@
+{
+  "name": "insighta-stage3-cli",
+  "version": "1.0.0",
+  "description": "Insighta Labs+ Stage 3 CLI",
+  "type": "commonjs",
+  "bin": {
+    "insighta": "./bin/insighta.js"
+  },
+  "scripts": {
+    "lint": "node --check bin/insighta.js && node --check src/index.js && node --check src/http.js && node --check src/credentials.js && node --check src/pkce.js",
+    "test": "node --test test/cli.test.js",
+    "pack:dry": "npm pack --dry-run"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md"
+  ],
+  "license": "UNLICENSED",
+  "private": false
+}
