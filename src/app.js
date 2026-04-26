@@ -1,12 +1,19 @@
 const express = require('express');
 const { createRouter } = require('./routes/profiles');
+const defaultAuthRepo = require('./repo/auth');
+const { createAuthRouter } = require('./routes/auth');
 const { error } = require('./lib/respond');
 const { HttpError } = require('./lib/errors');
+const { createAuthService } = require('./services/auth');
+const { requireApiVersion } = require('./middleware/apiVersion');
+const { requireAuth } = require('./middleware/auth');
+const { requestLogger } = require('./middleware/requestLogger');
+const { memoryStore, rateLimit } = require('./middleware/rateLimit');
 
 function cors(req, res, next) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-API-Version, X-CSRF-Token');
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
   }
@@ -15,14 +22,49 @@ function cors(req, res, next) {
 
 function createApp(options = {}) {
   const app = express();
+  const authService = options.authService || createAuthService({
+    repo: options.authRepo || defaultAuthRepo,
+    githubProvider: options.githubProvider,
+    jwtSecret: options.jwtSecret,
+    adminGithubIds: options.adminGithubIds,
+    adminGithubUsernames: options.adminGithubUsernames,
+    backendPublicUrl: options.backendPublicUrl,
+    webAppUrl: options.webAppUrl,
+  });
+  const store = options.rateLimitStore || memoryStore();
+  const authRequired = options.authRequired !== false;
+  const apiVersionRequired = options.apiVersionRequired !== false;
+
   app.disable('x-powered-by');
   app.use(cors);
+  app.use(requestLogger(options.logger || console.log));
   app.use(express.json({ limit: '10kb' }));
 
   app.get('/', (req, res) => {
-    res.status(200).json({ status: 'success', message: 'Backend Wizards Stage 2 - Intelligence Query Engine' });
+    res.status(200).json({ status: 'success', message: 'Insighta Labs+ Stage 3 API' });
   });
 
+  app.use('/auth', rateLimit({
+    key: (req) => req.ip || req.socket.remoteAddress || 'anonymous',
+    limit: options.authRateLimit || 10,
+    scope: 'auth',
+    store,
+    windowMs: 60_000,
+  }), createAuthRouter({ authService }));
+
+  if (apiVersionRequired) {
+    app.use('/api', requireApiVersion);
+  }
+  if (authRequired) {
+    app.use('/api', requireAuth(authService));
+    app.use('/api', rateLimit({
+      key: (req) => req.user ? req.user.id : (req.ip || 'anonymous'),
+      limit: options.apiRateLimit || 60,
+      scope: 'api',
+      store,
+      windowMs: 60_000,
+    }));
+  }
   app.use('/api/profiles', createRouter(options));
 
   app.use((req, res) => {

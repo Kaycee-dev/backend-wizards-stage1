@@ -33,7 +33,7 @@ const SEARCH_FIXTURES = {
 function newApp(fixtures = {}) {
   const repo = createMemoryRepo();
   const enrichName = createFakeEnrich(fixtures);
-  const app = createApp({ repo, enrichName });
+  const app = createApp({ repo, enrichName, authRequired: false, apiVersionRequired: false, logger: () => {} });
   return { app, repo };
 }
 

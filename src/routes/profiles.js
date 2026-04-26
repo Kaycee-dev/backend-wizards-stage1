@@ -5,16 +5,26 @@ const { ageGroup } = require('../services/classify');
 const defaultRepo = require('../repo/profiles');
 const { success, error } = require('../lib/respond');
 const { getCountryName } = require('../lib/countries');
-const { validateListQuery, validateSearchQuery } = require('../lib/queryValidation');
+const { validateExportQuery, validateListQuery, validateSearchQuery } = require('../lib/queryValidation');
 const { parseNaturalLanguageQuery } = require('../services/queryParser');
 const { normalizeName } = require('../lib/profiles');
+const { withPaginationLinks } = require('../lib/pagination');
+const { profilesToCsv } = require('../lib/csv');
+const { requireRole } = require('../middleware/auth');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function createRouter({ repo = defaultRepo, enrichName = defaultEnrich } = {}) {
+function createRouter(options = {}) {
+  const { repo = defaultRepo, enrichName = defaultEnrich } = options;
   const router = express.Router();
+  const adminOnly = options.authRequired === false
+    ? (req, res, next) => next()
+    : requireRole('admin');
+  const shapePagination = (req, result) => (
+    options.apiVersionRequired === false ? result : withPaginationLinks(req, result)
+  );
 
-  router.post('/', async (req, res, next) => {
+  router.post('/', adminOnly, async (req, res, next) => {
     try {
       const body = req.body || {};
       if (!('name' in body) || body.name === null || body.name === undefined) {
@@ -59,7 +69,20 @@ function createRouter({ repo = defaultRepo, enrichName = defaultEnrich } = {}) {
     try {
       const filters = validateListQuery(req.query);
       const result = await repo.queryProfiles(filters);
-      return success(res, 200, result);
+      return success(res, 200, shapePagination(req, result));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/export', async (req, res, next) => {
+    try {
+      const filters = validateExportQuery(req.query);
+      const rows = await repo.exportProfiles(filters);
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="profiles_${timestamp}.csv"`);
+      return res.status(200).send(profilesToCsv(rows));
     } catch (err) {
       next(err);
     }
@@ -70,7 +93,7 @@ function createRouter({ repo = defaultRepo, enrichName = defaultEnrich } = {}) {
       const { q, ...options } = validateSearchQuery(req.query);
       const parsedFilters = parseNaturalLanguageQuery(q);
       const result = await repo.queryProfiles({ ...options, ...parsedFilters });
-      return success(res, 200, result);
+      return success(res, 200, shapePagination(req, result));
     } catch (err) {
       next(err);
     }
@@ -88,7 +111,7 @@ function createRouter({ repo = defaultRepo, enrichName = defaultEnrich } = {}) {
     }
   });
 
-  router.delete('/:id', async (req, res, next) => {
+  router.delete('/:id', adminOnly, async (req, res, next) => {
     try {
       const { id } = req.params;
       if (!UUID_RE.test(id)) return error(res, 404, 'Profile not found');

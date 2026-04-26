@@ -89,6 +89,14 @@ function createMemoryRepo() {
         data: filtered.slice(start, start + limit).map(fullShape),
       };
     },
+    async exportProfiles(options = {}) {
+      const result = await this.queryProfiles({
+        ...options,
+        page: 1,
+        limit: Number.MAX_SAFE_INTEGER,
+      });
+      return result.data;
+    },
     size() {
       return rows.size;
     },

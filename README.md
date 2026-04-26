@@ -1,193 +1,184 @@
-# Backend Wizards Stage 2 — Intelligence Query Engine
+# Insighta Labs+ Stage 3
 
-HNG14 Backend Wizards Stage 2 submission: a production-oriented profiles API
-that supports advanced filtering, sorting, pagination, and rule-based natural
-language search on a seeded demographic dataset.
+Secure access and multi-interface integration for the HNG14 Backend Wizards
+Stage 3 task. This repository is the backend source of truth and also contains
+repo-ready `cli/` and `web/` packages for the required three-repository split.
 
-## Stack
+## System Architecture
 
-- Node.js 20+, Express 4
-- PostgreSQL 16 via `pg`
-- UUID v7 via `uuidv7`
-- Tests: `node:test` + `supertest`
+- Backend: Node.js 20, Express 4, PostgreSQL, raw SQL migrations, UUID v7.
+- CLI: Node.js global binary named `insighta`, storing credentials at
+  `~/.insighta/credentials.json`.
+- Web portal: Next.js app with server-side backend calls and HTTP-only session
+  cookies.
+- One backend API serves both interfaces. Profile data, users, roles, refresh
+  tokens, and one-time web auth codes live in PostgreSQL.
 
-## Profile Schema
+## Auth Flow
 
-The `profiles` table is migrated to this public shape:
+- CLI login generates `state`, `code_verifier`, and `S256 code_challenge`,
+  starts a local `127.0.0.1` callback server, opens GitHub via
+  `/auth/github?client=cli`, then exchanges `code + code_verifier` with
+  `POST /auth/github/cli`.
+- Web login starts at `/auth/github?client=web`; the backend stores signed OAuth
+  state in an HTTP-only cookie, handles `/auth/github/callback`, creates a
+  one-time web auth code, and redirects to the web portal callback.
+- The web portal exchanges the one-time code through `POST /auth/web/session`
+  and stores app tokens in HTTP-only cookies.
+- GitHub access tokens are only used to fetch identity. Insighta issues its own
+  app access and refresh tokens.
+
+## Token Handling
+
+- Access token: signed app JWT, 3-minute expiry.
+- Refresh token: 5-minute opaque random token; only SHA-256 hashes are stored.
+- Refresh rotation: `POST /auth/refresh` invalidates the old refresh token
+  immediately and issues a new access/refresh pair.
+- Logout: `POST /auth/logout` revokes the refresh token server-side.
+- CLI auto-refreshes once on `401`; web stores tokens away from JavaScript.
+
+## Role Enforcement
+
+- Users default to `analyst`.
+- Admin bootstrap is controlled by `ADMIN_GITHUB_USERNAMES` and
+  `ADMIN_GITHUB_IDS`.
+- Central middleware authenticates `/api/*`, blocks inactive users, and attaches
+  `req.user`.
+- Admins can create, delete, read, search, and export profiles.
+- Analysts can read, search, and export only. Create/delete returns `403`.
+
+## API Updates
+
+All `/api/*` requests require:
+
+```http
+Authorization: Bearer <access_token>
+X-API-Version: 1
+```
+
+Missing version returns:
 
 ```json
-{
-  "id": "018f...",
-  "name": "Ella Hassan",
-  "gender": "female",
-  "gender_probability": 0.99,
-  "age": 46,
-  "age_group": "adult",
-  "country_id": "CD",
-  "country_name": "DR Congo",
-  "country_probability": 0.85,
-  "created_at": "2026-04-20T12:00:00Z"
-}
+{ "status": "error", "message": "API version header required" }
 ```
 
-Names are unique after `lower(trim(name))` normalization. IDs are UUID v7.
-Timestamps are returned as UTC ISO 8601 strings with `Z`.
-
-## Endpoints
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| `POST` | `/api/profiles` | Create a profile from upstream enrichment or return the existing normalized-name match |
-| `GET` | `/api/profiles` | Advanced filtered list with sorting and pagination |
-| `GET` | `/api/profiles/search` | Rule-based natural language search |
-| `GET` | `/api/profiles/:id` | Fetch one profile |
-| `DELETE` | `/api/profiles/:id` | Delete a profile |
-| `GET` | `/` | Health check |
-
-All responses include `Access-Control-Allow-Origin: *`.
-
-## Query Features
-
-### `GET /api/profiles`
-
-Supported query parameters:
-
-- `gender` → `male | female`
-- `age_group` → `child | teenager | adult | senior`
-- `country_id` → 2-letter ISO code
-- `min_age`, `max_age`
-- `min_gender_probability`, `min_country_probability`
-- `sort_by` → `age | created_at | gender_probability`
-- `order` → `asc | desc`
-- `page` → default `1`
-- `limit` → default `10`, max `50` (values above 50 are clamped to 50)
-
-Example:
-
-```bash
-curl "http://localhost:3000/api/profiles?gender=male&country_id=NG&min_age=25&sort_by=age&order=desc&page=1&limit=10"
-```
-
-Response shape:
+Paginated list and search responses include:
 
 ```json
 {
   "status": "success",
   "page": 1,
   "limit": 10,
-  "total": 42,
-  "data": [{ "...": "profile row" }]
+  "total": 2026,
+  "total_pages": 203,
+  "links": {
+    "self": "/api/profiles?page=1&limit=10",
+    "next": "/api/profiles?page=2&limit=10",
+    "prev": null
+  },
+  "data": []
 }
 ```
 
-### `GET /api/profiles/search`
+CSV export:
 
-Supported query parameters:
-
-- `q` → required natural language query
-- `sort_by`, `order`, `page`, `limit`
-
-Examples:
-
-```bash
-curl "http://localhost:3000/api/profiles/search?q=young%20males%20from%20nigeria"
-curl "http://localhost:3000/api/profiles/search?q=females%20above%2030"
-curl "http://localhost:3000/api/profiles/search?q=adult%20males%20from%20kenya"
+```http
+GET /api/profiles/export?format=csv
 ```
 
-Implemented rule-based mappings include:
+It applies the same filters and sorting as `GET /api/profiles` and returns the
+required CSV column order.
 
-- gender words: `male`, `female`, singular and plural variants
-- age groups: `child`, `teenager`, `adult`, `senior`
-- `young` → `min_age=16`, `max_age=24`
-- age phrases such as `above 30`, `over 30`, `at least 30`, `below 20`, `under 20`
-- country names resolved from the seeded country registry
+## Natural Language Parsing
 
-If both male and female are present in the same query, the gender filter is
-omitted and the remaining interpreted filters are applied.
+The Stage 2 rule-based parser remains intact. It maps phrases such as:
 
-## Errors
+- `young males from nigeria` -> `gender=male`, `min_age=16`, `max_age=24`,
+  `country_id=NG`
+- `females above 30` -> `gender=female`, `min_age=30`
+- `adult males from kenya` -> `gender=male`, `age_group=adult`,
+  `country_id=KE`
 
-Errors always return:
+No AI or LLM is used. Uninterpretable text returns:
 
 ```json
-{ "status": "error", "message": "<error message>" }
+{ "status": "error", "message": "Unable to interpret query" }
 ```
 
-Important cases:
+## CLI Usage
 
-| Case | Status | Message |
-|------|--------|---------|
-| Missing or empty `name` | `400` | `Missing or empty name` |
-| `name` is not a string | `422` | `Invalid type` |
-| Empty or missing required search/query parameter | `400` | `Invalid query parameters` |
-| Invalid filter, sort, pagination, or malformed search parameter | `422` | `Invalid query parameters` |
-| Uninterpretable natural-language query | `400` | `Unable to interpret query` |
-| Unknown/malformed id | `404` | `Profile not found` |
-| Invalid upstream response | `502` | `${Api} returned an invalid response` |
-| Unhandled server failure | `500` | `Internal server error` |
+```bash
+cd cli
+npm install -g .
+insighta login --api-url https://<backend-host>
+insighta whoami
+insighta profiles list --gender male --country NG --page 2 --limit 20
+insighta profiles get <id>
+insighta profiles search "young males from nigeria"
+insighta profiles create --name "Harriet Tubman"
+insighta profiles export --format csv --gender male --country NG
+insighta logout
+```
 
-On any `502`, no row is written.
+## Web Portal
 
-## Seed Data
+Required pages are implemented in `web/`:
 
-The API seeds PostgreSQL from the local [`seed_profiles.json`](./seed_profiles.json)
-file containing 2,026 profiles.
+- Login
+- Dashboard
+- Profiles list
+- Profile detail
+- Search
+- Account
 
-- Seeding is idempotent.
-- Re-running the seed does not create duplicate rows.
-- Seed inserts use normalized-name conflict handling.
-- The same seed file is also used to build the country registry for
-  `country_name` backfill and natural-language country matching.
+The portal calls the same backend API and uses HTTP-only cookies plus CSRF
+checks on mutating BFF routes.
 
 ## Local Setup
 
 ```bash
 cp .env.example .env
-# set DATABASE_URL and optionally PORT
-
 npm install
 npm run migrate
 npm run seed
 npm start
 ```
 
-Notes:
+Backend environment:
 
-- `npm start` also attempts migrations and seeding automatically when
-  `DATABASE_URL` is present.
-- `npm run seed` is safe to rerun.
+- `DATABASE_URL`
+- `BACKEND_PUBLIC_URL`
+- `WEB_APP_URL`
+- `JWT_SECRET`
+- `GITHUB_WEB_CLIENT_ID`, `GITHUB_WEB_CLIENT_SECRET`
+- `GITHUB_CLI_CLIENT_ID`, `GITHUB_CLI_CLIENT_SECRET`
+- `ADMIN_GITHUB_USERNAMES` or `ADMIN_GITHUB_IDS`
 
 ## Tests
 
 ```bash
+npm run lint
 npm test
+
+cd cli
+npm run lint
+npm test
+npm pack --dry-run
+
+cd ../web
+npm run lint
+npm test
+npm run build
 ```
 
-The test suite covers:
-
-- CRUD behavior with the Stage 2 profile shape
-- advanced list filtering, sorting, pagination, and validation
-- natural-language query parsing and `/api/profiles/search`
-- UUID v7 and UTC timestamp formatting
-- CORS behavior
-- upstream enrichment behavior
-
-Tests use an in-memory repo adapter, so they do not require PostgreSQL.
+Backend tests cover Stage 2 regressions plus Stage 3 auth, RBAC, versioning,
+pagination links, CSV export, refresh rotation, and rate limiting.
 
 ## Deployment
 
-1. Provision PostgreSQL and set `DATABASE_URL`.
-2. Deploy the service with `npm start`.
-3. Confirm boot logs show migrations and seed completion.
-4. Verify:
+- Backend: Railway with PostgreSQL, using `npm start`.
+- Web: Vercel, using `web/` as the project root.
+- CLI: install globally from the split CLI repository.
 
-```bash
-curl "https://<your-host>/api/profiles"
-curl "https://<your-host>/api/profiles/search?q=young%20males%20from%20nigeria"
-```
-
-Before submission, replace these placeholders with your actual deployed values:
-
-- API base URL: `https://<your-host>`
-- Repository URL: `https://github.com/<your-user>/<your-repo>`
+Submission requires the backend repo URL, CLI repo URL, web repo URL, live
+backend URL, and live web portal URL.

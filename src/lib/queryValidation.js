@@ -21,6 +21,19 @@ const LIST_KEYS = new Set([
   'limit',
 ]);
 
+const EXPORT_KEYS = new Set([
+  'format',
+  'gender',
+  'age_group',
+  'country_id',
+  'min_age',
+  'max_age',
+  'min_gender_probability',
+  'min_country_probability',
+  'sort_by',
+  'order',
+]);
+
 const SEARCH_KEYS = new Set([
   'q',
   'sort_by',
@@ -182,8 +195,21 @@ function validateSearchQuery(query) {
   return { ...filters, q };
 }
 
+function validateExportQuery(query) {
+  ensureAllowedKeys(query, EXPORT_KEYS);
+  const format = readSingleValue(query, 'format');
+  if (format !== 'csv') {
+    invalidQuery(format === undefined ? 400 : 422);
+  }
+  const filters = readSortAndPagination(query);
+  delete filters.page;
+  delete filters.limit;
+  return filters;
+}
+
 module.exports = {
   invalidQuery,
+  validateExportQuery,
   validateListQuery,
   validateSearchQuery,
 };

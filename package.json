@@ -2,7 +2,7 @@
   "name": "backend-wizards-stage1",
   "version": "1.0.0",
   "private": true,
-  "description": "HNG14 Backend Wizards Stage 2 - Intelligence Query Engine",
+  "description": "HNG14 Backend Wizards Stage 3 - Insighta Labs+ Secure Access API",
   "type": "commonjs",
   "main": "src/server.js",
   "scripts": {
@@ -10,7 +10,8 @@
     "dev": "node src/server.js",
     "migrate": "node src/migrate.js",
     "seed": "node src/seed.js",
-    "test": "node --test test/contract.test.js test/external.test.js test/queryParser.test.js"
+    "lint": "node scripts/node-check.js",
+    "test": "node --test test/contract.test.js test/external.test.js test/queryParser.test.js test/stage3.test.js"
   },
   "engines": {
     "node": ">=20"

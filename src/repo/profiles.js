@@ -30,6 +30,51 @@ function serialize(row) {
   };
 }
 
+function buildWhere(options) {
+  const filters = [];
+  const params = [];
+
+  if (options.gender) {
+    params.push(normalizeGender(options.gender));
+    filters.push(`gender = $${params.length}`);
+  }
+  if (options.age_group) {
+    params.push(normalizeAgeGroup(options.age_group));
+    filters.push(`age_group = $${params.length}`);
+  }
+  if (options.country_id) {
+    params.push(normalizeCountryId(options.country_id));
+    filters.push(`country_id = $${params.length}`);
+  }
+  if (options.min_age !== undefined) {
+    params.push(options.min_age);
+    filters.push(`age >= $${params.length}`);
+  }
+  if (options.max_age !== undefined) {
+    params.push(options.max_age);
+    filters.push(`age <= $${params.length}`);
+  }
+  if (options.min_gender_probability !== undefined) {
+    params.push(options.min_gender_probability);
+    filters.push(`gender_probability >= $${params.length}`);
+  }
+  if (options.min_country_probability !== undefined) {
+    params.push(options.min_country_probability);
+    filters.push(`country_probability >= $${params.length}`);
+  }
+
+  return {
+    params,
+    where: filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '',
+  };
+}
+
+function sortClause(options) {
+  const sortColumn = SORT_COLUMNS[options.sort_by] || SORT_COLUMNS.created_at;
+  const sortOrder = options.order === 'desc' ? 'DESC' : 'ASC';
+  return `ORDER BY ${sortColumn} ${sortOrder}, id ${sortOrder}`;
+}
+
 async function insertOrGet(profile) {
   const insertSql = `
     INSERT INTO profiles
@@ -113,41 +158,7 @@ async function deleteById(id) {
 }
 
 async function queryProfiles(options) {
-  const filters = [];
-  const params = [];
-
-  if (options.gender) {
-    params.push(normalizeGender(options.gender));
-    filters.push(`gender = $${params.length}`);
-  }
-  if (options.age_group) {
-    params.push(normalizeAgeGroup(options.age_group));
-    filters.push(`age_group = $${params.length}`);
-  }
-  if (options.country_id) {
-    params.push(normalizeCountryId(options.country_id));
-    filters.push(`country_id = $${params.length}`);
-  }
-  if (options.min_age !== undefined) {
-    params.push(options.min_age);
-    filters.push(`age >= $${params.length}`);
-  }
-  if (options.max_age !== undefined) {
-    params.push(options.max_age);
-    filters.push(`age <= $${params.length}`);
-  }
-  if (options.min_gender_probability !== undefined) {
-    params.push(options.min_gender_probability);
-    filters.push(`gender_probability >= $${params.length}`);
-  }
-  if (options.min_country_probability !== undefined) {
-    params.push(options.min_country_probability);
-    filters.push(`country_probability >= $${params.length}`);
-  }
-
-  const where = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
-  const sortColumn = SORT_COLUMNS[options.sort_by] || SORT_COLUMNS.created_at;
-  const sortOrder = options.order === 'desc' ? 'DESC' : 'ASC';
+  const { params, where } = buildWhere(options);
   const totalResult = await query(`SELECT COUNT(*)::int AS total FROM profiles ${where}`, params);
 
   params.push(options.limit, (options.page - 1) * options.limit);
@@ -168,7 +179,7 @@ async function queryProfiles(options) {
         created_at AT TIME ZONE 'UTC' AS created_at
       FROM profiles
       ${where}
-      ORDER BY ${sortColumn} ${sortOrder}, id ${sortOrder}
+      ${sortClause(options)}
       LIMIT $${limitPosition}
       OFFSET $${offsetPosition}
     `,
@@ -183,4 +194,28 @@ async function queryProfiles(options) {
   };
 }
 
-module.exports = { insertOrGet, findById, deleteById, queryProfiles, serialize };
+async function exportProfiles(options) {
+  const { params, where } = buildWhere(options);
+  const { rows } = await query(
+    `
+      SELECT
+        id,
+        name,
+        gender,
+        gender_probability,
+        age,
+        age_group,
+        country_id,
+        country_name,
+        country_probability,
+        created_at AT TIME ZONE 'UTC' AS created_at
+      FROM profiles
+      ${where}
+      ${sortClause(options)}
+    `,
+    params
+  );
+  return rows.map(serialize);
+}
+
+module.exports = { deleteById, exportProfiles, findById, insertOrGet, queryProfiles, serialize };
