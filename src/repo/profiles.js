@@ -30,37 +30,65 @@ function serialize(row) {
   };
 }
 
-function buildWhere(options) {
-  const filters = [];
-  const params = [];
-
+function appendFilterConditions(options, params) {
+  const conditions = [];
   if (options.gender) {
     params.push(normalizeGender(options.gender));
-    filters.push(`gender = $${params.length}`);
+    conditions.push(`gender = $${params.length}`);
   }
   if (options.age_group) {
     params.push(normalizeAgeGroup(options.age_group));
-    filters.push(`age_group = $${params.length}`);
+    conditions.push(`age_group = $${params.length}`);
   }
   if (options.country_id) {
     params.push(normalizeCountryId(options.country_id));
-    filters.push(`country_id = $${params.length}`);
+    conditions.push(`country_id = $${params.length}`);
+  }
+  if (Array.isArray(options.country_ids) && options.country_ids.length > 0) {
+    const placeholders = options.country_ids.map((countryId) => {
+      params.push(normalizeCountryId(countryId));
+      return `$${params.length}`;
+    });
+    conditions.push(`country_id IN (${placeholders.join(', ')})`);
   }
   if (options.min_age !== undefined) {
     params.push(options.min_age);
-    filters.push(`age >= $${params.length}`);
+    conditions.push(`age >= $${params.length}`);
   }
   if (options.max_age !== undefined) {
     params.push(options.max_age);
-    filters.push(`age <= $${params.length}`);
+    conditions.push(`age <= $${params.length}`);
   }
   if (options.min_gender_probability !== undefined) {
     params.push(options.min_gender_probability);
-    filters.push(`gender_probability >= $${params.length}`);
+    conditions.push(`gender_probability >= $${params.length}`);
   }
   if (options.min_country_probability !== undefined) {
     params.push(options.min_country_probability);
-    filters.push(`country_probability >= $${params.length}`);
+    conditions.push(`country_probability >= $${params.length}`);
+  }
+  return conditions;
+}
+
+function buildWhere(options) {
+  const filters = [];
+  const params = [];
+  const directConditions = appendFilterConditions(options, params);
+  if (directConditions.length > 0) {
+    filters.push(...directConditions);
+  }
+
+  if (Array.isArray(options.any) && options.any.length > 0) {
+    const anyConditions = [];
+    for (const clause of options.any) {
+      const clauseConditions = appendFilterConditions(clause, params);
+      if (clauseConditions.length > 0) {
+        anyConditions.push(`(${clauseConditions.join(' AND ')})`);
+      }
+    }
+    if (anyConditions.length > 0) {
+      filters.push(`(${anyConditions.join(' OR ')})`);
+    }
   }
 
   return {

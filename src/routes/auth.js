@@ -143,7 +143,10 @@ function createAuthRouter({ authService }) {
   router.post('/refresh', async (req, res, next) => {
     try {
       const tokenPair = await authService.refresh((req.body || {}).refresh_token);
-      return success(res, 200, tokenPair);
+      return success(res, 200, {
+        access_token: tokenPair.access_token,
+        refresh_token: tokenPair.refresh_token,
+      });
     } catch (err) {
       next(err);
     }
