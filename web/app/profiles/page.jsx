@@ -2,6 +2,18 @@ import Link from 'next/link';
 import AppShell from '../../components/AppShell';
 import { backendJson, profileQuery } from '../../lib/backend';
 
+const EXPORT_KEYS = [
+  'gender',
+  'age_group',
+  'country_id',
+  'min_age',
+  'max_age',
+  'min_gender_probability',
+  'min_country_probability',
+  'sort_by',
+  'order',
+];
+
 function pageHref(params, page) {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params || {})) {
@@ -10,6 +22,16 @@ function pageHref(params, page) {
   query.set('page', String(page));
   const serialized = query.toString();
   return serialized ? `/profiles?${serialized}` : '/profiles';
+}
+
+function exportHref(params) {
+  const query = new URLSearchParams();
+  for (const key of EXPORT_KEYS) {
+    const value = params?.[key];
+    if (value) query.set(key, value);
+  }
+  query.set('format', 'csv');
+  return `/api/profiles/export?${query.toString()}`;
 }
 
 export default async function ProfilesPage({ searchParams }) {
@@ -36,6 +58,7 @@ export default async function ProfilesPage({ searchParams }) {
         <input name="min_age" defaultValue={params.min_age || ''} placeholder="Min age" />
         <input name="max_age" defaultValue={params.max_age || ''} placeholder="Max age" />
         <button type="submit">Apply</button>
+        <a className="button secondary" href={exportHref(params)}>Export CSV</a>
       </form>
       <section className="panel">
         <table>
