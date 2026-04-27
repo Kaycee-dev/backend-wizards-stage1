@@ -107,8 +107,21 @@ function openBrowser(url) {
     return;
   }
   const platform = process.platform;
-  const command = platform === 'win32' ? 'cmd' : platform === 'darwin' ? 'open' : 'xdg-open';
-  const args = platform === 'win32' ? ['/c', 'start', '""', url] : [url];
+  let command;
+  let args;
+  if (platform === 'win32') {
+    // Avoid `cmd /c start "" <url>` because cmd treats `&` as a command
+    // separator and truncates the URL at the first query-string ampersand,
+    // which strips redirect_uri / state / code_challenge.
+    command = 'rundll32';
+    args = ['url.dll,FileProtocolHandler', url];
+  } else if (platform === 'darwin') {
+    command = 'open';
+    args = [url];
+  } else {
+    command = 'xdg-open';
+    args = [url];
+  }
   const child = spawn(command, args, { detached: true, stdio: 'ignore' });
   child.unref();
 }
