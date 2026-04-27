@@ -57,36 +57,11 @@ function sessionCookieAttrs(tokenPair) {
   ];
 }
 
-export async function setSessionCookies(tokenPair) {
-  const jar = await cookies();
-  for (const [name, value, opts] of sessionCookieAttrs(tokenPair)) {
-    jar.set(name, value, opts);
-  }
-}
-
 export function applySessionCookies(response, tokenPair) {
   for (const [name, value, opts] of sessionCookieAttrs(tokenPair)) {
     response.cookies.set(name, value, opts);
   }
   return response;
-}
-
-export async function refreshSession() {
-  const session = await readSession();
-  if (!session.refreshToken) return null;
-  const res = await fetch(`${backendUrl()}/auth/refresh`, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ refresh_token: session.refreshToken }),
-    cache: 'no-store',
-  });
-  if (!res.ok) return null;
-  const payload = await res.json();
-  await setSessionCookies(payload);
-  return payload;
 }
 
 function clearedCookieAttrs() {
@@ -98,13 +73,6 @@ function clearedCookieAttrs() {
     secure: cookieSecure(),
   };
   return [ACCESS_COOKIE, REFRESH_COOKIE, USER_COOKIE].map((name) => [name, '', opts]);
-}
-
-export async function clearSessionCookies() {
-  const jar = await cookies();
-  for (const [name, value, opts] of clearedCookieAttrs()) {
-    jar.set(name, value, opts);
-  }
 }
 
 export function clearSessionCookiesOn(response) {

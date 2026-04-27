@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { backendUrl, readSession, refreshSession } from './session';
+import { backendUrl, readSession } from './session';
 
 export async function backendFetch(path, init = {}) {
   const session = await readSession();
@@ -16,18 +16,7 @@ export async function backendFetch(path, init = {}) {
     },
   });
 
-  let res = await buildRequest(session.accessToken);
-  if (res.status !== 401) return res;
-
-  try {
-    const refreshed = await refreshSession();
-    if (refreshed?.access_token) {
-      res = await buildRequest(refreshed.access_token);
-    }
-  } catch (err) {
-    redirect('/login');
-  }
-  return res;
+  return buildRequest(session.accessToken);
 }
 
 export async function backendJson(path, init = {}) {

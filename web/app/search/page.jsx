@@ -1,6 +1,11 @@
 import AppShell from '../../components/AppShell';
 import { backendJson } from '../../lib/backend';
 
+function searchHref(q, page) {
+  const params = new URLSearchParams({ q, page: String(page) });
+  return `/search?${params.toString()}`;
+}
+
 export default async function SearchPage({ searchParams }) {
   const params = await searchParams;
   const q = params.q || '';
@@ -32,6 +37,19 @@ export default async function SearchPage({ searchParams }) {
           </tbody>
         </table>
       </section>
+      {q ? (
+        <div className="topline" style={{ marginTop: 16 }}>
+          <p className="muted">Page {payload.page} of {payload.total_pages || 1} · Total {payload.total}</p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {payload.links?.prev ? (
+              <a className="button secondary" href={searchHref(q, payload.page - 1)}>Previous</a>
+            ) : null}
+            {payload.links?.next ? (
+              <a className="button secondary" href={searchHref(q, payload.page + 1)}>Next</a>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </AppShell>
   );
 }

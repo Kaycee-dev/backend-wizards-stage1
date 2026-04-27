@@ -2,6 +2,16 @@ import Link from 'next/link';
 import AppShell from '../../components/AppShell';
 import { backendJson, profileQuery } from '../../lib/backend';
 
+function pageHref(params, page) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params || {})) {
+    if (value) query.set(key, value);
+  }
+  query.set('page', String(page));
+  const serialized = query.toString();
+  return serialized ? `/profiles?${serialized}` : '/profiles';
+}
+
 export default async function ProfilesPage({ searchParams }) {
   const params = await searchParams;
   const payload = await backendJson(`/api/profiles${profileQuery(params)}`);
@@ -45,7 +55,17 @@ export default async function ProfilesPage({ searchParams }) {
           </tbody>
         </table>
       </section>
-      <p className="muted">Page {payload.page} of {payload.total_pages || 1} · Total {payload.total}</p>
+      <div className="topline" style={{ marginTop: 16 }}>
+        <p className="muted">Page {payload.page} of {payload.total_pages || 1} · Total {payload.total}</p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {payload.links?.prev ? (
+            <Link className="button secondary" href={pageHref(params, payload.page - 1)}>Previous</Link>
+          ) : null}
+          {payload.links?.next ? (
+            <Link className="button secondary" href={pageHref(params, payload.page + 1)}>Next</Link>
+          ) : null}
+        </div>
+      </div>
     </AppShell>
   );
 }
