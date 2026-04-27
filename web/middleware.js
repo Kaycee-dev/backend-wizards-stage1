@@ -66,6 +66,13 @@ function clearSessionCookies(response, request) {
 }
 
 export async function middleware(request) {
+  // Only refresh on GET navigations. Non-GET requests (POST form submits, logout,
+  // CSRF-protected mutations) cannot survive a 307 redirect — the body would be
+  // dropped and the method silently downgraded to GET.
+  if (request.method !== 'GET') {
+    return NextResponse.next();
+  }
+
   const accessToken = request.cookies.get(ACCESS_COOKIE)?.value;
   const refreshToken = request.cookies.get(REFRESH_COOKIE)?.value;
 
@@ -104,5 +111,11 @@ export async function middleware(request) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/profiles/:path*', '/search/:path*', '/account/:path*'],
+  matcher: [
+    '/dashboard/:path*',
+    '/profiles/:path*',
+    '/search/:path*',
+    '/account/:path*',
+    '/api/:path*',
+  ],
 };
