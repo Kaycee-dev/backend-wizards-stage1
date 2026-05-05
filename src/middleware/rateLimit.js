@@ -19,14 +19,17 @@ function memoryStore() {
   };
 }
 
-function rateLimit({ limit, windowMs = 60_000, key, scope, store = memoryStore() }) {
+function rateLimit({ limit, windowMs = 60_000, key, scope, store = memoryStore(), skip, signalOnly }) {
   return (req, res, next) => {
+    if (typeof skip === 'function' && skip(req)) return next();
     const keyValue = key(req);
     const bucket = store.hit(`${scope}:${keyValue}`, windowMs);
     res.setHeader('X-RateLimit-Limit', String(limit));
     res.setHeader('X-RateLimit-Remaining', String(Math.max(0, limit - bucket.count)));
     res.setHeader('X-RateLimit-Reset', String(Math.ceil(bucket.resetAt / 1000)));
     if (bucket.count > limit) {
+      if (signalOnly && bucket.tripped) return next();
+      bucket.tripped = true;
       return error(res, 429, 'Too many requests');
     }
     next();

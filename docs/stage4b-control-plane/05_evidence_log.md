@@ -1,0 +1,14 @@
+# Evidence Log
+
+| Evidence ID | Date | Gate | Command or Artifact | Result |
+|---|---|---|---|---|
+| E-4B-001 | 2026-05-05 | B4B-GOV-001 | `Get-ChildItem -Recurse docs\stage4b-control-plane`; `.gitignore` narrow unignore for `docs/stage4b-control-plane/**`; runtime status/current-task files created. | Governance scaffold exists in the Stage 3 repo only and is not hidden by the docs ignore rule. |
+| E-4B-002 | 2026-05-05 | B4B-BASELINE-001 | Read Stage 4B brief, Stage 4A design context, README, package scripts, migrations, routes, repo, validation, parser, auth/RBAC, CLI, web backend integration, and git status. | Baseline confirms the narrow integration points: `repo.queryProfiles` for list/search optimization and one new admin import route under existing `/api` middleware. |
+| E-4B-003 | 2026-05-05 | B4B-INDEX-001 | Created `migrations/004_stage4b_optimization.sql`. | Migration contains only the three allowed composite indexes. Runtime verification will occur with `npm run migrate`. |
+| E-4B-004 | 2026-05-05 | B4B-QUERY-001 | Updated `src/repo/profiles.js` and `src/db.js`. | `queryProfiles` uses `COUNT(*) OVER()` for normal pages, falls back to count on empty pages, and the existing pool reads Stage 4B env tuning defaults. |
+| E-4B-005 | 2026-05-05 | B4B-CACHE-001 | Added `src/lib/queryCache.js`; routed list/search through the cache; create/delete clear cache. | Canonical keys sort object keys, `country_ids`, and `any` clauses; cache defaults are 30s TTL and 500 entries with env overrides. |
+| E-4B-006 | 2026-05-05 | B4B-IMPORT-001 | Installed `busboy` and `csv-parse`; added `src/services/profileImport.js`; added repo batch insert and `/api/profiles/import`. | Import streams multipart CSV, validates rows, inserts valid candidates in chunks, counts skipped reasons, and clears query cache after each successful batch. |
+| E-4B-007 | 2026-05-05 | B4B-TEST-001 | `npm install`; `npm run lint`; `npm test`; local multipart smoke; local repeated-query timing. | Install/lint/test/smoke/timing passed. `npm test` passed 69/69. Timing capture: cold 56.928 ms, cached 24.331 ms against in-memory local app with 200 seeded rows. |
+| E-4B-008 | 2026-05-05 | B4B-SOLUTION-001 | Created `SOLUTION.md`. | Solution document covers query optimization, indexes, fallback behavior, cache normalization/invalidation, CSV ingestion, edge cases, trade-offs, verification results, and exact DB-backed measurement commands. |
+| E-4B-009 | 2026-05-05 | B4B-TEST-001 | `npm run migrate` with provided Railway `DATABASE_URL`. | Passed. Migrations `001_init.sql` through `004_stage4b_optimization.sql` applied successfully. |
+| E-4B-010 | 2026-05-05 | B4B-SOLUTION-001 | Read-only Railway query timing with 2,030 `profiles` rows, five runs each. | Old two-query count/page flow average: 712.066 ms. New `COUNT(*) OVER()` query average: 369.014 ms. |

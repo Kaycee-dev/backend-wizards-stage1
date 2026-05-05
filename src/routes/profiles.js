@@ -10,13 +10,16 @@ const { parseNaturalLanguageQuery } = require('../services/queryParser');
 const { normalizeName } = require('../lib/profiles');
 const { withPaginationLinks } = require('../lib/pagination');
 const { profilesToCsv } = require('../lib/csv');
+const { createProfileQueryCache, queryProfilesWithCache } = require('../lib/queryCache');
 const { requireRole } = require('../middleware/auth');
+const { importProfilesFromMultipart } = require('../services/profileImport');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function createRouter(options = {}) {
   const { repo = defaultRepo, enrichName = defaultEnrich } = options;
   const router = express.Router();
+  const profileQueryCache = options.profileQueryCache || createProfileQueryCache();
   const adminOnly = options.authRequired === false
     ? (req, res, next) => next()
     : requireRole('admin');
@@ -56,6 +59,7 @@ function createRouter(options = {}) {
       };
 
       const { inserted, row } = await repo.insertOrGet(profile);
+      profileQueryCache.clear();
       if (inserted) {
         return success(res, 201, { data: row });
       }
@@ -65,10 +69,23 @@ function createRouter(options = {}) {
     }
   });
 
+  router.post('/import', adminOnly, async (req, res, next) => {
+    try {
+      const result = await importProfilesFromMultipart(req, {
+        repo,
+        batchSize: options.importBatchSize,
+        onBatchComplete: () => profileQueryCache.clear(),
+      });
+      return success(res, 200, result);
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.get('/', async (req, res, next) => {
     try {
       const filters = validateListQuery(req.query);
-      const result = await repo.queryProfiles(filters);
+      const result = await queryProfilesWithCache(repo, profileQueryCache, filters);
       return success(res, 200, shapePagination(req, result));
     } catch (err) {
       next(err);
@@ -92,7 +109,7 @@ function createRouter(options = {}) {
     try {
       const { q, ...options } = validateSearchQuery(req.query);
       const parsedFilters = parseNaturalLanguageQuery(q);
-      const result = await repo.queryProfiles({ ...options, ...parsedFilters });
+      const result = await queryProfilesWithCache(repo, profileQueryCache, { ...options, ...parsedFilters });
       return success(res, 200, shapePagination(req, result));
     } catch (err) {
       next(err);
@@ -117,6 +134,7 @@ function createRouter(options = {}) {
       if (!UUID_RE.test(id)) return error(res, 404, 'Profile not found');
       const ok = await repo.deleteById(id);
       if (!ok) return error(res, 404, 'Profile not found');
+      profileQueryCache.clear();
       return res.status(204).end();
     } catch (err) {
       next(err);

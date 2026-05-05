@@ -11,12 +11,14 @@
     "migrate": "node src/migrate.js",
     "seed": "node src/seed.js",
     "lint": "node scripts/node-check.js",
-    "test": "node --test test/contract.test.js test/external.test.js test/queryParser.test.js test/stage3.test.js"
+    "test": "node --test test/contract.test.js test/external.test.js test/queryCache.test.js test/queryParser.test.js test/queryRepo.test.js test/stage3.test.js test/stage4b.test.js"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "busboy": "^1.6.0",
+    "csv-parse": "^6.2.1",
     "express": "^4.19.2",
     "pg": "^8.11.5",
     "uuidv7": "^1.0.2"

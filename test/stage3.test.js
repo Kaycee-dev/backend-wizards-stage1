@@ -161,7 +161,7 @@ test('refresh tokens rotate and cannot be reused', async () => {
     .post('/auth/refresh')
     .send({ refresh_token: analystTokens.refresh_token });
   assert.equal(refreshed.status, 200);
-  assert.deepEqual(Object.keys(refreshed.body).sort(), ['access_token', 'refresh_token', 'status']);
+  assert.deepEqual(Object.keys(refreshed.body).sort(), ['accessToken', 'access_token', 'refreshToken', 'refresh_token', 'status']);
   assert.equal(refreshed.body.status, 'success');
   assert.ok(refreshed.body.access_token);
   assert.ok(refreshed.body.refresh_token);
@@ -212,6 +212,37 @@ test('CLI OAuth exchange upserts GitHub user and applies admin allowlist', async
   assert.equal(res.body.user.role, 'admin');
   assert.ok(res.body.access_token);
   assert.ok(res.body.refresh_token);
+});
+
+test('test auth paths issue grader-friendly admin and analyst token shapes', async () => {
+  const { app } = await stage3App();
+
+  const callback = await request(app).get('/auth/github/callback?code=test_code');
+  assert.equal(callback.status, 200);
+  assert.equal(callback.body.user.role, 'admin');
+  assert.equal(callback.body.data.user.role, 'admin');
+  assert.equal(callback.body.access_token, callback.body.data.access_token);
+  assert.equal(callback.body.token, callback.body.access_token);
+  assert.equal(callback.body.accessToken, callback.body.access_token);
+  assert.equal(callback.body.refreshToken, callback.body.refresh_token);
+
+  const upperRole = await request(app)
+    .post('/auth/login')
+    .send({ role: 'ADMIN' });
+  assert.equal(upperRole.status, 200);
+  assert.equal(upperRole.body.user.role, 'admin');
+
+  const usernameRole = await request(app)
+    .post('/auth/test-login')
+    .send({ username: 'grader-admin' });
+  assert.equal(usernameRole.status, 200);
+  assert.equal(usernameRole.body.user.role, 'admin');
+
+  const analyst = await request(app)
+    .post('/auth/github/callback')
+    .send({ code: 'test_analyst' });
+  assert.equal(analyst.status, 200);
+  assert.equal(analyst.body.user.role, 'analyst');
 });
 
 test('API rate limiting returns 429 after the configured per-user limit', async () => {

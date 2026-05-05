@@ -54,6 +54,7 @@ function createMemoryRepo() {
 
   return {
     _rows: rows,
+    _batchInsertCalls: [],
     async insertOrGet(profile) {
       const nameKey = normalizeNameKey(profile.name);
       for (const row of rows.values()) {
@@ -68,6 +69,22 @@ function createMemoryRepo() {
       };
       rows.set(stored.id, stored);
       return { inserted: true, row: fullShape(stored) };
+    },
+    async insertManyIgnoreDuplicates(profiles) {
+      this._batchInsertCalls.push(profiles.length);
+      const inserted = [];
+      for (const profile of profiles) {
+        const nameKey = normalizeNameKey(profile.name);
+        const exists = [...rows.values()].some((row) => normalizeNameKey(row.name) === nameKey);
+        if (exists) continue;
+        const stored = {
+          ...toProfileRecord(profile),
+          created_at: nextCreatedAt(),
+        };
+        rows.set(stored.id, stored);
+        inserted.push(fullShape(stored));
+      }
+      return inserted;
     },
     async findById(id) {
       const row = rows.get(id);
@@ -114,6 +131,9 @@ function createMemoryRepo() {
     },
     size() {
       return rows.size;
+    },
+    batchInsertCalls() {
+      return [...this._batchInsertCalls];
     },
   };
 }

@@ -12,9 +12,14 @@ web/.next/
 docs/*
 !docs/stage3/
 !docs/stage3/**
+!docs/stage4b-control-plane/
+!docs/stage4b-control-plane/**
 backend-wizards-stage1-sprint_v1_0.md
 backend-wizards-stage1-hardening-sprint_v1_0.md
 backend-wizards-stage1-proof-sprint_v1_0.md
 stage2_task_details.md
 stage3_task_details.md
 STAGE 3 TASK - TRD.md
+
+# Interview prep - local only, never committed
+interview-prep/
