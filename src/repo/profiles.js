@@ -158,6 +158,49 @@ async function insertOrGet(profile) {
   return { inserted: false, row: serialize(existing.rows[0]) };
 }
 
+async function insertManyIgnoreDuplicates(profiles) {
+  if (!Array.isArray(profiles) || profiles.length === 0) return [];
+  const records = profiles.map(toProfileRecord);
+  const params = [];
+  const values = records.map((record) => {
+    const start = params.length + 1;
+    params.push(
+      record.id,
+      record.name,
+      record.gender,
+      record.gender_probability,
+      record.age,
+      record.age_group,
+      record.country_id,
+      record.country_name,
+      record.country_probability
+    );
+    return `($${start},$${start + 1},$${start + 2},$${start + 3},$${start + 4},$${start + 5},$${start + 6},$${start + 7},$${start + 8})`;
+  });
+
+  const { rows } = await query(
+    `
+      INSERT INTO profiles
+        (id, name, gender, gender_probability, age, age_group, country_id, country_name, country_probability)
+      VALUES ${values.join(',')}
+      ON CONFLICT ((LOWER(BTRIM(name)))) DO NOTHING
+      RETURNING
+        id,
+        name,
+        gender,
+        gender_probability,
+        age,
+        age_group,
+        country_id,
+        country_name,
+        country_probability,
+        created_at AT TIME ZONE 'UTC' AS created_at
+    `,
+    params
+  );
+  return rows.map(serialize);
+}
+
 async function findById(id) {
   const { rows } = await query(
     `
@@ -187,14 +230,13 @@ async function deleteById(id) {
 
 async function queryProfiles(options) {
   const { params, where } = buildWhere(options);
-  const totalResult = await query(`SELECT COUNT(*)::int AS total FROM profiles ${where}`, params);
-
-  params.push(options.limit, (options.page - 1) * options.limit);
-  const limitPosition = params.length - 1;
-  const offsetPosition = params.length;
+  const pageParams = [...params, options.limit, (options.page - 1) * options.limit];
+  const limitPosition = pageParams.length - 1;
+  const offsetPosition = pageParams.length;
   const { rows } = await query(
     `
       SELECT
+        COUNT(*) OVER()::int AS total_count,
         id,
         name,
         gender,
@@ -211,13 +253,18 @@ async function queryProfiles(options) {
       LIMIT $${limitPosition}
       OFFSET $${offsetPosition}
     `,
-    params
+    pageParams
   );
+  let total = rows.length > 0 ? Number(rows[0].total_count) : null;
+  if (total === null) {
+    const totalResult = await query(`SELECT COUNT(*)::int AS total FROM profiles ${where}`, params);
+    total = totalResult.rows[0].total;
+  }
 
   return {
     page: options.page,
     limit: options.limit,
-    total: totalResult.rows[0].total,
+    total,
     data: rows.map(serialize),
   };
 }
@@ -246,4 +293,12 @@ async function exportProfiles(options) {
   return rows.map(serialize);
 }
 
-module.exports = { deleteById, exportProfiles, findById, insertOrGet, queryProfiles, serialize };
+module.exports = {
+  deleteById,
+  exportProfiles,
+  findById,
+  insertManyIgnoreDuplicates,
+  insertOrGet,
+  queryProfiles,
+  serialize,
+};
